@@ -8,144 +8,164 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var ballPosition = Int.random(in: 0..<3)
-    @State private var currentCups = [0, 1, 2]
-    @State private var score = 0
-    @State private var gameOver = false
-    @State private var canGuess = false
-    @State private var showBall = true
-    @State private var resultMessage = ""
-    @State private var showResult = false
-    @State private var cupOffsets: [CGFloat] = [0, 0, 0]
+    @Namespace private var cupNamespace
 
-    let shuffleDuration = 0.6
+    @State private var cups: [Int] = [0, 1, 2]
+    @State private var ballIndex = 1
+    @State private var selectedCup: Int? = nil
+    @State private var showResult = false
+    @State private var showInitialBall = false
+    @State private var score = 0
+    @State private var level = 1
+    @State private var isShuffling = false
+    @State private var remainingTime = 5
+    @State private var gameActive = false
+
+    let cupCount = 3
+    let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ZStack {
-            Color.blue.edgesIgnoringSafeArea(.all)
+        VStack(spacing: 10) {
+            Text("🎯 Cup and Ball")
+                .font(.headline)
 
-            VStack(spacing: 15) {
-                Text(gameOver ? "Game Over" : (canGuess ? "Pick the Cup!" : "Watch the Ball"))
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.white)
+            Text("Level \(level) | Skor: \(score)")
+                .font(.subheadline)
 
-                HStack(spacing: 20) {
-                    ForEach(0..<3) { index in
-                        let cupIndex = currentCups[index]
+            HStack {
+                ForEach(cups, id: \.self) { index in
+                    ZStack {
+                        if ((showResult && index == cups[ballIndex]) || (showInitialBall && index == cups[ballIndex])) {
+                            Circle()
+                                .fill(Color.purple)
+                                .frame(width: 20, height: 20)
+                                .offset(y: 18)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+
                         Button(action: {
-                            if canGuess {
-                                cupTapped(cupIndex)
+                            if gameActive && !showResult {
+                                withAnimation {
+                                    selectedCup = index
+                                }
+                                evaluateGuess()
                             }
                         }) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color.white)
-                                    .frame(width: 50, height: 100)
-
-                                if showBall && cupIndex == ballPosition {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 20, height: 20)
-                                        .offset(y: 30)
-                                }
-                            }
-                            .offset(x: cupOffsets[index])
-                            .animation(.easeInOut(duration: shuffleDuration), value: cupOffsets[index])
+                            Text("🎩")
+                                .font(.system(size: 30))
+                                .padding()
+                                .offset(y: liftOffset(for: index))
                         }
-                        .disabled(!canGuess || gameOver)
+                        .matchedGeometryEffect(id: index, in: cupNamespace)
+                        .disabled(!gameActive || showResult)
                     }
                 }
+            }
+            .animation(.easeInOut(duration: 0.4), value: cups)
 
-                Text("Score: \(score)")
-                    .foregroundColor(.white)
-                    .padding(.top, 10)
+            if isShuffling {
+                Text("🔄 Mengacak...")
+                    .foregroundColor(.gray)
+            } else if gameActive && !showResult {
+                Text("⏳ Waktu: \(remainingTime)s")
+                    .foregroundColor(.orange)
+            }
 
-                if gameOver {
-                    Button("Restart Game") {
-                        resetGame()
-                    }
-                    .padding()
-                    .background(Color.white)
-                    .cornerRadius(8)
+            if showResult {
+                Text(selectedCup == cups[ballIndex] ? "✅ Benar!" : "❌ Salah!")
+                    .font(.title3)
+                    .padding(.top, 5)
+            }
+        }
+        .onAppear {
+            showInitialBall = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                showInitialBall = false
+                shuffleCups()
+            }
+        }
+        .onReceive(timer) { _ in
+            if gameActive && !showResult {
+                if remainingTime > 0 {
+                    remainingTime -= 1
+                } else {
+                    selectedCup = nil
+                    evaluateGuess()
                 }
-            }
-            .onAppear {
-                startRound()
-            }
-            .alert(isPresented: $showResult) {
-                Alert(title: Text(resultMessage), dismissButton: .default(Text("OK"), action: {
-                    if !gameOver {
-                        startRound()
-                    }
-                }))
             }
         }
     }
 
-    func startRound() {
-        showBall = true
-        canGuess = false
-        ballPosition = Int.random(in: 0..<3)
-        currentCups = [0, 1, 2]
-        cupOffsets = [0, 0, 0]
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            showBall = false
-            shuffleCups(times: 5)
+    func liftOffset(for index: Int) -> CGFloat {
+        if showResult && index == selectedCup {
+            return -15
         }
+        return 0
     }
 
-    func shuffleCups(times: Int) {
-        guard times > 0 else {
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + shuffleDuration) {
-                cupOffsets = [0, 0, 0]
-                withAnimation {
-                    canGuess = true
-                }
+    func shuffleCups() {
+        isShuffling = true
+        gameActive = false
+        showResult = false
+        remainingTime = 5
+        selectedCup = nil
+
+        var count = 0
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
+            count += 1
+
+            var newCups = cups
+            let i = Int.random(in: 0..<cupCount)
+            var j = Int.random(in: 0..<cupCount)
+            while j == i {
+                j = Int.random(in: 0..<cupCount)
             }
-            return
-        }
+            newCups.swapAt(i, j)
+            cups = newCups
 
-        let first = Int.random(in: 0..<3)
-        var second = Int.random(in: 0..<3)
-        while second == first {
-            second = Int.random(in: 0..<3)
-        }
+            if ballIndex == i {
+                ballIndex = j
+            } else if ballIndex == j {
+                ballIndex = i
+            }
 
-        
-        withAnimation(.easeInOut(duration: shuffleDuration)) {
-            cupOffsets[first] += (first < second ? 30 : -30)
-            cupOffsets[second] += (second < first ? 30 : -30)
-        }
-
-    
-        DispatchQueue.main.asyncAfter(deadline: .now() + shuffleDuration) {
-            cupOffsets = [0, 0, 0]
-            currentCups.swapAt(first, second)
-            shuffleCups(times: times - 1)
+            if count >= 6 {
+                timer.invalidate()
+                isShuffling = false
+                gameActive = true
+            }
         }
     }
 
-    func cupTapped(_ guessedCup: Int) {
-        canGuess = false
-        if guessedCup == ballPosition {
-            score += 1
-            resultMessage = "Correct!"
-        } else {
-            resultMessage = "Wrong! Game Over."
-            gameOver = true
-        }
+    func evaluateGuess() {
         showResult = true
+        gameActive = false
+
+        if selectedCup == cups[ballIndex] {
+            score += 1
+            if score % 3 == 0 {
+                level += 1
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            startNewRound()
+        }
     }
 
-    func resetGame() {
-        score = 0
-        gameOver = false
-        startRound()
+    func startNewRound() {
+        selectedCup = nil
+        showResult = false
+        showInitialBall = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            showInitialBall = false
+            shuffleCups()
+        }
     }
 }
+
 
 #Preview {
     ContentView()
 }
+
