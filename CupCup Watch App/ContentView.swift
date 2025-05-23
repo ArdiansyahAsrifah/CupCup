@@ -26,7 +26,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Text("🎯 Cup and Ball")
+            Text("🎯 Heat and Ball")
                 .font(.headline)
 
             Text("Level \(level) | Skor: \(score)")
